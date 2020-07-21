@@ -1,0 +1,9 @@
+- mean_age_1
+- men_1_imputed
+- white_1_imputed
+- parall_dis
+- num_centers_imputed
+- length_treat2
+- prob_pbo
+- year
+- usa
