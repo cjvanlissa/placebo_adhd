@@ -137,34 +137,7 @@ check_conv <- MetaForest(yi~.,
 plot(check_conv)
 ```
 
-It can be seen that this model has converged within approximately 10000 trees (Figure \@ref(fig:figconverge)). Thus, we will use this number of trees for subsequent analyses. We now apply pre-selection using the \texttt{preselect} function. This algorithm helps eliminate noise moderators by replicating the analysis 100-fold. Using \texttt{preselect_vars}, we retain only those moderators for which a 95% percentile interval of the variable importance metrics does not include zero (variable importance is counted as zero when a moderator is not included in the final step of the recursive algorithm).
-
-```{r, eval = FALSE}
-if(run_everything){
-  # Model with 10000 trees for replication
-mf_rep <- MetaForest(yi~.,
-                        data = df_train,
-                        whichweights = "random",
-                        num.trees = 10000)
-# Run recursive preselection, store results in object 'preselect'
-preselected <- preselect(mf_rep,
-                         replications = 100)
-# Plot the results
-plot(preselected)
-# Retain only moderators with positive variable importance in more than
-# 50% of replications
-retain_mods <- preselect_vars(preselected, cutoff = .95)
-yaml::write_yaml(retain_mods, "retain_mods.txt")
-} else {
-  retain_mods <- yaml::read_yaml("retain_mods.txt")
-}
-
-```
-
-```{r figpreselect, eval=FALSE, fig.cap="Replicated variable importance for moderator pre-selection"}
-# Plot the results
-plot(preselected)
-```
+It can be seen that this model has converged within approximately 10000 trees (Figure \@ref(fig:figconverge)). Thus, we will use this number of trees for subsequent analyses.
 
 Next, we tune the model using the R-package \texttt{caret}, which offers a uniform workflow for any machine learning task. The function \texttt{ModelInfo_mf} tells caret how to tune a MetaForest analysis. As tuning parameters, we consider all three types of weights (uniform, fixed-, and random-effects), number of candidate variables at each split from 2-6, and a minimum node size from 2-6. We select the model with smallest prediction error (RMSE) as final model, based on 10-fold clustered cross-validation. Clustered cross-validation means that effect sizes from the same study are always included in the same fold, to account for the dependency in the data. Note that the number of folds cannot exceed the number of clusters in the data. Moreover, if the number of clusters is very small, one might have to resort to specifying the same number of folds as clusters. Model tuning typically takes a long time; for this small dataset, it might take five minutes; for a very large dataset, it might take hours. However, when your dataset is larger, you will often reach model convergence at a lower number of trees, which reduces computation time.
 

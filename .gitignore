@@ -12,3 +12,4 @@
 .Rproj.user
 !vif.csv
 !codebook.csv
+*.RData

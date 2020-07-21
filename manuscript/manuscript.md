@@ -2,6 +2,14 @@ Untitled
 ================
 21 July, 2020
 
+<script src="//yihui.org/js/math-code.js"></script>
+
+<!-- Just one possible MathJax CDN below. You may use others. -->
+
+<script async
+  src="//mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML">
+</script>
+
 ## Multicolinearity analysis
 
 ``` r
@@ -136,39 +144,7 @@ check_conv <- MetaForest(yi~.,
 
 It can be seen that this model has converged within approximately 10000
 trees (Figure @ref(fig:figconverge)). Thus, we will use this number of
-trees for subsequent analyses. We now apply pre-selection using the 
-function. This algorithm helps eliminate noise moderators by replicating
-the analysis 100-fold. Using \\texttt{preselect\_vars}, we retain only
-those moderators for which a 95% percentile interval of the variable
-importance metrics does not include zero (variable importance is counted
-as zero when a moderator is not included in the final step of the
-recursive algorithm).
-
-``` r
-if(run_everything){
-  # Model with 10000 trees for replication
-mf_rep <- MetaForest(yi~.,
-                        data = df_train,
-                        whichweights = "random",
-                        num.trees = 10000)
-# Run recursive preselection, store results in object 'preselect'
-preselected <- preselect(mf_rep,
-                         replications = 100)
-# Plot the results
-plot(preselected)
-# Retain only moderators with positive variable importance in more than
-# 50% of replications
-retain_mods <- preselect_vars(preselected, cutoff = .95)
-yaml::write_yaml(retain_mods, "retain_mods.txt")
-} else {
-  retain_mods <- yaml::read_yaml("retain_mods.txt")
-}
-```
-
-``` r
-# Plot the results
-plot(preselected)
-```
+trees for subsequent analyses.
 
 Next, we tune the model using the R-package , which offers a uniform
 workflow for any machine learning task. The function
