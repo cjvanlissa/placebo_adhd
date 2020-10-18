@@ -231,3 +231,69 @@ PartialDependence(final, vars = ordered_vars,
 ```
 
 We can conclude that the model has converged, and has a positive estimate of explained variance in new data, $R^2_{oob} = `r formatC(r2_oob, digits = 2, format = "f")`$, $R^2_{cv} = `r formatC(r2_cv, digits = 2, format = "f")`$. However, the model has negative explained variance in the testing data, $R^2_{test} = `r formatC(test_performance["r2"], digits = 2, format = "f")`$. Thus, the model appears to be overfit. We will plot the variable importance (Figure \@ref(fig:figvarimp)), and partial dependence plots (Figure \@ref(fig:figpd)).
+
+
+```{r}
+p <- PartialDependence(final, vars = ordered_vars, output = "list", rawdata = TRUE)
+source("../get_signs.R")
+the_signs <- t(get_signs(p))
+# Number variables
+p <- lapply(1:length(p), function(i){
+  p[[i]]+facet_grid(.~Variable, labeller = labeller(
+    Variable = setNames(paste0(i, ". ", ordered_vars[i]), ordered_vars[i])
+  ))
+})
+
+# Reduce font size
+p <- lapply(p, function(x){ x + theme(strip.text.x = element_text(size = 6),
+                                      axis.text.x = element_text(size = 6),
+                                      axis.text.y = element_text(size = 6))})
+
+p_pdp <- metaforest:::merge_plots(p)
+ggsave(
+  filename = "rf_pdp_numbered.png",
+  p_pdp,
+  device = "png")
+svg("rf_pdp_numbered.svg")
+eval(p_pdp)
+dev.off()
+
+dirs <- data.frame(the_signs)
+VI <- sort(final$forest$variable.importance, decreasing = TRUE)
+VI <- data.frame(Variable = paste0(1:length(VI), ". ", names(VI)), Importance = VI, Direction = dirs$V9[match(names(VI), dirs$V1)])
+VI$Variable <- ordered(VI$Variable, levels = rev(VI$Variable))
+VI$Direction <- ordered(VI$Direction, levels = c("Positive monotonous", "Mostly positive", "Other", "Mostly negative", "Negative monotonous"))
+
+p_vi <- ggplot(VI, aes_string(y = "Variable", x = "Importance")) + 
+  geom_segment(aes_string(x = 0, xend = "Importance", 
+                          y = "Variable", yend = "Variable"), colour = "grey50", 
+               linetype = 2) +
+  geom_vline(xintercept = 0, colour = "grey50", 
+             linetype = 1) +
+  xlab("Permutation Importance") + 
+  theme_bw() + theme(panel.grid.major.x = element_blank(), 
+                     panel.grid.minor.x = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.y = element_text(hjust=0)) + 
+  geom_point(aes_string(fill = "Direction"), shape = 21, size = 2) + 
+  scale_fill_grey(start = 1, end =0) +
+  #scale_fill_manual(values = c("Mostly positive" = "white", "Mostly negative" = "gray80", "Negative" = "black", "Other" = "gray50")) + 
+  theme(legend.position = c(0.8, 0.2))
+ggsave(
+  filename = "varimp.png",
+  p_vi,
+  device = "png")
+svg("varimp.svg")
+eval(p_vi)
+dev.off()
+
+
+imp_p <- ranger::importance_pvalues(final$forest, formula = .outcome ~., data = final$data, method = "altmann")
+VI$pvalue <- imp_p[,2][match(rownames(VI), rownames(imp_p))]
+write.csv(VI, "table4.csv", row.names = FALSE)
+metaforest:::predict.MetaForest()
+df <- as.data.frame(data[data$id %in% tmp, match(names(final$data)[-1], names(data))])
+pred <- predict(final, data = df)
+write.table(pred$predictions, "clipboard", sep = "\n")
+```
+

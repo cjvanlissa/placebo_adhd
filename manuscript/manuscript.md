@@ -1,6 +1,6 @@
 Untitled
 ================
-21 July, 2020
+18 October, 2020
 
 <script src="//yihui.org/js/math-code.js"></script>
 
@@ -16,17 +16,7 @@ Untitled
 library(worcs)
 library(readxl)
 library(tidySEM)
-```
-
-    ## Warning: package 'tidySEM' was built under R version 4.0.2
-
-``` r
 library(metaforest)
-```
-
-    ## Warning: package 'ggplot2' was built under R version 4.0.2
-
-``` r
 # Email from Xavier:
 # The dataset has 2 sheets. In sheet #1 you will find the data to be analysed and in sheet #2 the description of the study variables.
 load_data()
@@ -119,6 +109,8 @@ using the preregistered seed value.
 ``` r
 set.seed(4286)
 train <- sample(unique(data$id), size = .7*length(unique(data$id)), replace = FALSE)
+yaml::write_yaml(train, "split.yml")
+train <- yaml::read_yaml("split.yml")
 df_train <- dat[data$id %in% train, ]
 df_test <- dat[!data$id %in% train, ]
 ```
@@ -133,6 +125,7 @@ the number of trees required to reach convergence.
 
 ``` r
 # Run model with many trees to check convergence
+set.seed(6473)
 check_conv <- MetaForest(yi~.,
                         data = df_train,
                         whichweights = "random",
@@ -145,6 +138,8 @@ check_conv <- MetaForest(yi~.,
 It can be seen that this model has converged within approximately 10000
 trees (Figure @ref(fig:figconverge)). Thus, we will use this number of
 trees for subsequent analyses.
+
+![](manuscript_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 Next, we tune the model using the R-package , which offers a uniform
 workflow for any machine learning task. The function
@@ -178,7 +173,7 @@ tuning_grid <- expand.grid(whichweights = c("random", "fixed", "unif"),
                        min.node.size = 2:6)
 
 # X should contain only retained moderators, clustering variable, and vi
-X <- df_train[, c("vi", mods)]
+X <- df_train[, c("vi", retain_mods)]
 
 # Train the model
 mf_cv <- train(y = df_train$yi,
@@ -190,8 +185,6 @@ mf_cv <- train(y = df_train$yi,
   saveRDS(mf_cv, "mf_cv.RData")
 }
 ```
-
-    ## Warning: package 'caret' was built under R version 4.0.2
 
     ## Loading required package: lattice
 
@@ -206,7 +199,7 @@ r2_cv <- mf_cv$results$Rsquared[which.min(mf_cv$results$RMSE)]
 ```
 
 Based on the root mean squared error, the best combination of tuning
-parameters were uniform weights, with 4 candidate variables per split,
+parameters were uniform weights, with 3 candidate variables per split,
 and a minimum of 2 cases per terminal node. We examined convergence of
 the final model (Figure @ref(fig:figconvergetuned)). Then, we examine
 the \(R^2_{oob}\).
@@ -245,9 +238,112 @@ PartialDependence(final, vars = ordered_vars,
 size](manuscript_files/figure-gfm/figpd-1.png)
 
 We can conclude that the model has converged, and has a positive
-estimate of explained variance in new data, \(R^2_{oob} = 0.33\),
-\(R^2_{cv} = 0.11\). However, the model has negative explained variance
-in the testing data, \(R^2_{test} = -0.04\). Thus, the model appears to
+estimate of explained variance in new data, \(R^2_{oob} = 0.37\),
+\(R^2_{cv} = 0.17\). However, the model has negative explained variance
+in the testing data, \(R^2_{test} = -0.11\). Thus, the model appears to
 be overfit. We will plot the variable importance (Figure
 @ref(fig:figvarimp)), and partial dependence plots (Figure
 @ref(fig:figpd)).
+
+``` r
+p <- PartialDependence(final, vars = ordered_vars, output = "list", rawdata = TRUE)
+source("../get_signs.R")
+the_signs <- t(get_signs(p))
+# Number variables
+p <- lapply(1:length(p), function(i){
+  p[[i]]+facet_grid(.~Variable, labeller = labeller(
+    Variable = setNames(paste0(i, ". ", ordered_vars[i]), ordered_vars[i])
+  ))
+})
+
+# Reduce font size
+p <- lapply(p, function(x){ x + theme(strip.text.x = element_text(size = 6),
+                                      axis.text.x = element_text(size = 6),
+                                      axis.text.y = element_text(size = 6))})
+
+p_pdp <- metaforest:::merge_plots(p)
+```
+
+![](manuscript_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+``` r
+ggsave(
+  filename = "rf_pdp_numbered.png",
+  p_pdp,
+  device = "png")
+```
+
+    ## Saving 7 x 5 in image
+
+``` r
+svg("rf_pdp_numbered.svg")
+eval(p_pdp)
+```
+
+    ## TableGrob (3 x 6) "partial.dependence": 13 grobs
+    ##     z     cells               name                 grob
+    ## 1   1 (1-1,2-2) partial.dependence       gtable[layout]
+    ## 2   2 (2-2,2-2) partial.dependence       gtable[layout]
+    ## 3   3 (3-3,2-2) partial.dependence       gtable[layout]
+    ## 4   4 (1-1,3-3) partial.dependence       gtable[layout]
+    ## 5   5 (2-2,3-3) partial.dependence       gtable[layout]
+    ## 6   6 (3-3,3-3) partial.dependence       gtable[layout]
+    ## 7   7 (1-1,4-4) partial.dependence       gtable[layout]
+    ## 8   8 (2-2,4-4) partial.dependence       gtable[layout]
+    ## 9   9 (3-3,4-4) partial.dependence null[GRID.null.1463]
+    ## 10 10 (1-1,5-5) partial.dependence       gtable[layout]
+    ## 11 11 (2-2,5-5) partial.dependence       gtable[layout]
+    ## 12 12 (3-3,5-5) partial.dependence null[GRID.null.1464]
+    ## 13 13 (1-3,1-1) partial.dependence text[GRID.text.1465]
+
+``` r
+dev.off()
+```
+
+    ## png 
+    ##   2
+
+``` r
+dirs <- data.frame(the_signs)
+VI <- sort(final$forest$variable.importance, decreasing = TRUE)
+VI <- data.frame(Variable = paste0(1:length(VI), ". ", names(VI)), Importance = VI, Direction = dirs$V9[match(names(VI), dirs$V1)])
+VI$Variable <- ordered(VI$Variable, levels = rev(VI$Variable))
+VI$Direction <- ordered(VI$Direction, levels = c("Positive monotonous", "Mostly positive", "Other", "Mostly negative", "Negative monotonous"))
+
+p_vi <- ggplot(VI, aes_string(y = "Variable", x = "Importance")) + 
+  geom_segment(aes_string(x = 0, xend = "Importance", 
+                          y = "Variable", yend = "Variable"), colour = "grey50", 
+               linetype = 2) +
+  geom_vline(xintercept = 0, colour = "grey50", 
+             linetype = 1) +
+  xlab("Permutation Importance") + 
+  theme_bw() + theme(panel.grid.major.x = element_blank(), 
+                     panel.grid.minor.x = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.y = element_text(hjust=0)) + 
+  geom_point(aes_string(fill = "Direction"), shape = 21, size = 2) + 
+  scale_fill_grey(start = 1, end =0) +
+  #scale_fill_manual(values = c("Mostly positive" = "white", "Mostly negative" = "gray80", "Negative" = "black", "Other" = "gray50")) + 
+  theme(legend.position = c(0.8, 0.2))
+ggsave(
+  filename = "varimp.png",
+  p_vi,
+  device = "png")
+```
+
+    ## Saving 7 x 5 in image
+
+``` r
+svg("varimp.svg")
+eval(p_vi)
+dev.off()
+```
+
+    ## png 
+    ##   2
+
+``` r
+imp_p <- ranger::importance_pvalues(final$forest, formula = .outcome ~., data = final$data, method = "altmann")
+VI$pvalue <- imp_p[,2][match(rownames(VI), rownames(imp_p))]
+write.csv(VI, "table4.csv", row.names = FALSE)
+```
