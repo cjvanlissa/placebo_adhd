@@ -19,8 +19,41 @@ library("worcs")
 # (whichever is available), to allow anyone to reproduce your code:
 # load_data()
 knitr::opts_chunk$set(echo = TRUE)
-run_everything = TRUE
+run_everything = FALSE
 source("../model_accuracy.R")
+get_signs <- function(pdps){
+  sapply(pdps, function(x){
+    thisvar <- x$data
+    out <- table(sign(c(-1, 0, 1, diff(thisvar$preds))))-1
+    if(any(out[c(1,3)] == 0) & !all(out[c(1,3)] == 0)){
+      out <- c(out, c("Negative monotonous", "Positive monotonous")[which(!out[c(1,3)] == 0)])
+    } else {
+      if(!out[1] == out[3]){
+        out <- c(out, c("Mostly negative", "Mostly positive")[(out[1] < out[3])+1])
+      } else {
+        out <- c(out, "Other")
+      }
+    }
+    dif_amount <- tapply(c(0,0,0, diff(thisvar$preds)), c(-1, 0, 1, sign(diff(thisvar$preds))), sum)
+    if(any(dif_amount[c(1,3)] == 0) & !all(dif_amount[c(1,3)] == 0)){
+      dif_amount <- c(dif_amount, c("Negative monotonous", "Positive monotonous")[which(!dif_amount[c(1,3)] == 0)])
+    } else {
+      if(abs(dif_amount[3]+.00001) / abs(dif_amount[1]+.00001) > 3){
+        dif_amount <- c(dif_amount, "Mostly positive")
+      } else {
+        if(abs(dif_amount[1]+.00001) / abs(dif_amount[3]+.00001) > 3){
+          dif_amount <- c(dif_amount, "Mostly negative")
+        } else {
+          if(!((abs(dif_amount[3]+.00001) / abs(dif_amount[1]+.00001) > 3) | (abs(dif_amount[1]+.00001) / abs(dif_amount[3]+.00001) > 3))){
+            dif_amount <- c(dif_amount, "Other")
+          }
+        }
+      }
+    }
+    c(names(thisvar)[1], out, dif_amount)
+  })
+}
+
 ```
 
 ## Multicolinearity analysis
@@ -232,10 +265,15 @@ PartialDependence(final, vars = ordered_vars,
 
 We can conclude that the model has converged, and has a positive estimate of explained variance in new data, $R^2_{oob} = `r formatC(r2_oob, digits = 2, format = "f")`$, $R^2_{cv} = `r formatC(r2_cv, digits = 2, format = "f")`$. However, the model has negative explained variance in the testing data, $R^2_{test} = `r formatC(test_performance["r2"], digits = 2, format = "f")`$. Thus, the model appears to be overfit. We will plot the variable importance (Figure \@ref(fig:figvarimp)), and partial dependence plots (Figure \@ref(fig:figpd)).
 
-
 ```{r}
-p <- PartialDependence(final, vars = ordered_vars, output = "list", rawdata = TRUE)
-source("../get_signs.R")
+if(run_everything){
+  set.seed(34)
+  p <- PartialDependence(x = final, vars = ordered_vars, output = "list", rawdata = TRUE)
+  saveRDS(p, "p_train.RData")
+  #source("../get_signs.R")
+  
+}
+p <- readRDS("p_train.RData")
 the_signs <- t(get_signs(p))
 # Number variables
 p <- lapply(1:length(p), function(i){
@@ -295,5 +333,81 @@ metaforest:::predict.MetaForest()
 df <- as.data.frame(data[data$id %in% tmp, match(names(final$data)[-1], names(data))])
 pred <- predict(final, data = df)
 write.table(pred$predictions, "clipboard", sep = "\n")
+```
+
+The definitive analysis was performed by applying to the whole data set the method that was found the most accurate, in this case MetaForest. 
+
+
+```{r}
+set.seed(684842)
+mf_full <- MetaForest(as.formula(paste0("yi~", paste0(ordered_vars, collapse = " + "))),
+                      data = dat,
+                      whichweights = "unif",
+                      mtry = 3,
+                      min.node.size = 2,
+                      num.trees = 10000)
+
+if(run_everything){
+  set.seed(34)
+  p <- PartialDependence(x = mf_full, vars = ordered_vars, output = "list", rawdata = TRUE)
+  saveRDS(p, "p_full.RData")
+}
+p <- readRDS("p_full.RData")
+
+the_signs <- t(get_signs(p))
+# Number variables
+p <- lapply(1:length(p), function(i){
+  p[[i]]+facet_grid(.~Variable, labeller = labeller(
+    Variable = setNames(paste0(i, ". ", ordered_vars[i]), ordered_vars[i])
+  ))
+})
+
+# Reduce font size
+p <- lapply(p, function(x){ x + theme(strip.text.x = element_text(size = 6),
+                                      axis.text.x = element_text(size = 6),
+                                      axis.text.y = element_text(size = 6))})
+
+p_pdp <- metaforest:::merge_plots(p)
+ggsave(
+  filename = "rf_pdp_numbered_fulldata.png",
+  p_pdp,
+  device = "png")
+svg("rf_pdp_numbered_fulldata.svg")
+eval(p_pdp)
+dev.off()
+
+dirs <- data.frame(the_signs)
+VI <- sort(mf_full$forest$variable.importance, decreasing = TRUE)
+VI <- data.frame(Variable = paste0(1:length(VI), ". ", names(VI)), Importance = VI, Direction = dirs$V9[match(names(VI), dirs$V1)])
+VI$Variable <- ordered(VI$Variable, levels = rev(VI$Variable))
+VI$Direction <- ordered(VI$Direction, levels = c("Positive monotonous", "Mostly positive", "Other", "Mostly negative", "Negative monotonous"))
+
+p_vi <- ggplot(VI, aes_string(y = "Variable", x = "Importance")) + 
+  geom_segment(aes_string(x = 0, xend = "Importance", 
+                          y = "Variable", yend = "Variable"), colour = "grey50", 
+               linetype = 2) +
+  geom_vline(xintercept = 0, colour = "grey50", 
+             linetype = 1) +
+  xlab("Permutation Importance") + 
+  theme_bw() + theme(panel.grid.major.x = element_blank(), 
+                     panel.grid.minor.x = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.y = element_text(hjust=0)) + 
+  geom_point(aes_string(fill = "Direction"), shape = 21, size = 2) + 
+  scale_fill_grey(start = 1, end =0) +
+  #scale_fill_manual(values = c("Mostly positive" = "white", "Mostly negative" = "gray80", "Negative" = "black", "Other" = "gray50")) + 
+  theme(legend.position = c(0.8, 0.2))
+ggsave(
+  filename = "varimp_fulldata.png",
+  p_vi,
+  device = "png")
+svg("varimp_fulldata.svg")
+eval(p_vi)
+dev.off()
+
+
+imp_p <- ranger::importance_pvalues(mf_full$forest, formula = yi ~., data = mf_full$data, method = "altmann")
+VI$pvalue <- imp_p[,2][match(rownames(VI), rownames(imp_p))]
+write.csv(VI, "table4_fulldata.csv", row.names = FALSE)
 ```
 
